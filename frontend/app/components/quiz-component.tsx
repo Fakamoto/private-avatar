@@ -43,23 +43,23 @@ export function QuizComponent({ quiz, state, onAnswer }: QuizComponentProps) {
   );
 
   return (
-    <Card className="mt-6 border-2 border-purple-200 bg-gradient-to-br from-purple-50/40 to-indigo-50/40 shadow-lg transition-all hover:shadow-xl">
-      <CardHeader className="border-b border-purple-100 bg-white/50 pb-4">
-        <CardTitle className="flex items-center justify-center gap-3 text-xl font-semibold text-purple-700">
-          <span role="img" aria-label="quiz" className="text-2xl">🎯</span>
+    <Card className="mt-4 border-2 border-purple-200 bg-gradient-to-br from-purple-50/40 to-indigo-50/40 shadow-lg transition-all hover:shadow-xl">
+      <CardHeader className="border-b border-purple-100 bg-white/50 py-2.5">
+        <CardTitle className="flex items-center justify-center gap-2 text-base font-semibold text-purple-700">
+          <span role="img" aria-label="quiz" className="text-lg">🎯</span>
           <span className="mx-1">{quiz.title}</span>
-          <span role="img" aria-label="brain" className="text-2xl">🧠</span>
-          <span role="img" aria-label="sparkles" className="text-2xl">✨</span>
+          <span role="img" aria-label="brain" className="text-lg">🧠</span>
+          <span role="img" aria-label="sparkles" className="text-lg">✨</span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="pt-6">
-        <p className="mb-6 text-lg font-medium text-gray-800">{quiz.question}</p>
+      <CardContent className="py-3">
+        <p className="mb-3 text-sm font-medium text-gray-800">{quiz.question}</p>
 
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-2">
           {state.shuffledAnswers.map((option) => {
             /* ---------- colour logic ---------- */
             const base =
-              "cursor-pointer rounded-md border p-4 text-base transition-all duration-200 select-none";
+              "cursor-pointer rounded-md border p-2 text-xs transition-all duration-200 select-none";
             let classes = base;
 
             if (state.answered) {
