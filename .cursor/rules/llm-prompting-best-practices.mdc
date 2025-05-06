@@ -1,0 +1,39 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# LLM Prompting Best Practices Guide
+
+This guide summarizes effective strategies for prompting Large Language Models (LLMs), especially models like GPT-4.1 that excel at instruction following and handling long context.
+
+## 1. Core Principles
+
+*   **Clarity & Specificity:** Be explicit, unambiguous, and literal in instructions. If the model deviates, add a clear clarifying sentence.
+*   **Context & Examples:** Provide relevant background information and concrete examples of desired input/output, formatting, or reasoning.
+*   **Iteration & Evaluation:** Define success criteria, test prompt changes, and iterate based on evaluation results.
+
+## 2. Guiding Reasoning (Chain-of-Thought)
+
+*   **Induce Step-by-Step Thinking:** Instruct the model to "think step-by-step" before providing the final answer, especially for complex tasks.
+*   **Provide a Reasoning Strategy:** For multi-step analysis, explicitly outline the required reasoning steps (e.g., Query Analysis -> Context Analysis -> Synthesis).
+*   **Refine:** Audit the model's reasoning process and add more specific instructions to address systematic errors.
+
+## 3. Mastering Instruction Following
+
+*   **Be Explicit:** Models follow instructions literally; clearly state rules, constraints, desired tone, format, topics to avoid, etc.
+*   **Structure Instructions:** Start with high-level rules (`# Instructions`) and add specific subsections (`# Output Formatting`, `# Tone`) as needed.
+*   **Define Workflows:** Use ordered lists for multi-step processes the model must follow.
+*   **Debug:** Check for conflicting/ambiguous instructions. Add examples to demonstrate desired behavior. Use explicit directives (`MUST`, `DO NOT`) sparingly.
+*   **Mitigate Failure Modes:** Add conditional logic (e.g., "If X, then Y, else Z") to handle cases where strict adherence to a rule might fail.
+
+## 4. Handling Long Context
+
+*   **Tune Context Reliance:** Explicitly instruct the model whether to rely solely on provided context or if it can incorporate its own knowledge.
+*   **Instruction Placement:** For large context blocks, place key instructions *both before and after* the context for best results. Placing instructions *before* is the second-best option.
+*   **Document Delimiters:** Use clear delimiters like XML (`<doc>...</doc>`) or structured plain text (`ID: 1 | TITLE: ...`) for large numbers of documents. Avoid JSON for this specific case based on testing.
+
+## 5. Prompt Structure
+
+*   **Logical Order:** Use a clear structure (e.g., Role -> Instructions -> Reasoning -> Output Format -> Examples -> Context -> Query -> Final Instruction).
+*   **Clear Delimiters:** Use Markdown (`#`, ``` ```, `-`), XML (`<tag>...</tag>`), or structured plain text to separate prompt sections clearly. Choose delimiters that contrast with the content.

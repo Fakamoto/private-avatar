@@ -1,0 +1,45 @@
+FROM python:3.12
+
+# Set working directory to root to organize folders
+WORKDIR /
+
+# Create data directory at root level
+RUN mkdir -p /data
+
+# Copy requirements first for caching
+COPY requirements.txt /backend/requirements.txt
+
+# Install dependencies
+RUN pip install --no-cache-dir --upgrade -r /backend/requirements.txt
+
+# Install essential LaTeX components and fonts
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    texlive-latex-base \
+    texlive-fonts-recommended \
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    texlive-xetex \
+    texlive-fonts-extra \
+    lmodern \
+    fonts-texgyre \
+    fonts-dejavu \
+    fonts-dejavu-core \
+    fonts-dejavu-extra \
+    fontconfig \
+    texlive-publishers \
+    python3-pygments \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv \
+    && mktexlsr
+
+# Set Python path to include the root directory
+ENV PYTHONPATH=/
+
+# Change working directory to backend
+WORKDIR /backend
+
+# Expose port
+EXPOSE 8000
+
+# Development mode with hot reload
+CMD ["fastapi", "dev", "main.py", "--port", "8000", "--host", "0.0.0.0", "--reload"] 

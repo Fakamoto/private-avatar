@@ -1,0 +1,85 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.${APP_ENV:-prod}
+    # ports: # Remove direct port exposure
+    volumes:
+      - ./data:/data
+      - ${APP_ENV:-prod}_backend_volume:/backend # Only mounts in dev mode
+    environment:
+      - OPENAI_API_KEY=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
+      - APP_ENV=${APP_ENV:-prod}
+    env_file:
+      - path: ./.env
+        required: false
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.${APP_ENV:-prod}
+      args:
+        - NEXT_PUBLIC_API_BASE_URL=/api
+    # ports: # Remove direct port exposure
+    volumes:
+      - ${APP_ENV:-prod}_frontend_volume:/app # Only mounts in dev mode
+      - ${APP_ENV:-prod}_node_modules:/app/node_modules # Only used in dev mode
+    environment:
+      # API calls will now use relative path /api handled by Nginx
+      - NEXT_PUBLIC_API_BASE_URL=/api
+      # Internal URL for server-side API routes within the frontend container
+      - INTERNAL_API_BASE_URL=http://backend:8000
+      - NEXT_TELEMETRY_DISABLED=1
+      - APP_ENV=${APP_ENV:-prod}
+    restart: unless-stopped
+    networks:
+      - app-network
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80" # Expose Nginx on port 80
+      # Add 443 if you configure SSL later
+      # - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      # Add volume for SSL certs if needed later
+      # - ./certs:/etc/nginx/certs
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - app-network
+    logging:
+      driver: none
+    attach: false # Prevent attaching to this service's output
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  # Production volumes (empty since we don't need to mount anything)
+  prod_backend_volume:
+  prod_frontend_volume:
+  prod_node_modules:
+  
+  # Development volumes (these will mount local directories)
+  dev_backend_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./backend
+  dev_frontend_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./frontend
+  dev_node_modules: # For preserving node_modules in development

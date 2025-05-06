@@ -1,0 +1,43 @@
+# Docker Environment Setup Guide
+
+This project uses Docker Compose with environment-specific configurations controlled by an `APP_ENV` variable in the root `.env` file.
+
+## Key Components:
+
+1.  **`.env` File:**
+    *   Located in the project root.
+    *   Must contain `APP_ENV=dev` for development or `APP_ENV=prod` for production.
+    *   Example:
+        ```
+        APP_ENV=dev
+        OPENAI_API_KEY=your_key
+        FAST_MODEL="gpt-4o-mini"
+        SMART_MODEL="gpt-4o"
+        ```
+
+2.  **Environment-Specific Dockerfiles:**
+    *   `frontend/Dockerfile.dev`: For frontend development (hot reload).
+    *   `frontend/Dockerfile.prod`: For frontend production (builds bundle).
+    *   `backend/Dockerfile.dev`: For backend development (FastAPI dev server with reload).
+    *   `backend/Dockerfile.prod`: For backend production (FastAPI run server with workers).
+
+3.  **`docker-compose.yml`:**
+    *   Uses `${APP_ENV:-prod}` substitution to select the correct Dockerfile (`Dockerfile.dev` or `Dockerfile.prod`).
+    *   Conditionally mounts local code volumes using `${APP_ENV:-prod}_<service>_volume` only when `APP_ENV=dev`.
+    *   Defines corresponding `dev_*` volumes as bind mounts and `prod_*` volumes as empty named volumes.
+
+## How it Works:
+
+*   Setting `APP_ENV=dev` in `.env` causes `docker-compose up` to:
+    *   Use the `.dev` Dockerfiles.
+    *   Mount `./frontend` and `./backend` into the respective containers.
+    *   Run services in development/hot-reload mode.
+*   Setting `APP_ENV=prod` (or omitting it) causes `docker-compose up` to:
+    *   Use the `.prod` Dockerfiles (building the code into the images).
+    *   *Not* mount local code volumes.
+    *   Run services using production commands (e.g., `npm start`, `fastapi run --workers 4`).
+
+## Running the Application:
+
+1.  Ensure the `.env` file exists and `APP_ENV` is set correctly.
+2.  Run `docker-compose up --build` (use `--build` initially or after Dockerfile changes). 

@@ -1,0 +1,25 @@
+FROM node:20.17.0 AS builder
+
+# Declare build-time argument
+ARG NEXT_PUBLIC_API_BASE_URL
+
+WORKDIR /app
+
+# Make the build-time argument available as an environment variable
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+
+# Copy files and generate build
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# Serve with a lighter image
+FROM node:20.17.0 AS runner
+
+WORKDIR /app
+
+COPY --from=builder /app ./
+EXPOSE 3000
+
+CMD ["npm", "run", "start"] 

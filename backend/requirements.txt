@@ -1,0 +1,10 @@
+agentics==0.1.9
+fastapi[standard]==0.115.8
+pydantic==2.10.6
+PyPDF2==3.0.1
+SQLAlchemy==2.0.35
+sqlmodel==0.0.22
+uvicorn==0.34.0
+python-dotenv==1.0.0
+python-pptx==1.0.2
+pypandoc_binary

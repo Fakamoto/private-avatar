@@ -1,0 +1,531 @@
+---
+description: for when dealing with slides and presentations, pptx, backend
+globs: 
+alwaysApply: false
+---
+
+# Pandoc Markdown to PPTX Conversion Guide
+
+This rule outlines the specific Pandoc Markdown features confirmed to work reliably for generating PowerPoint (PPTX) slides using the conversion script [lab/main.py](mdc:lab/main.py).
+
+The script is configured with `--slide-level=0` (only `---` creates new slides) and `--resource-path=.` (for image discovery).
+
+Refer to [lab/test.md](mdc:lab/test.md) for an example Markdown file utilizing these features.
+
+## Reliable Markdown Features for PPTX Conversion:
+
+*   **Metadata:** YAML block at the start (`title`, `author`, `date`, `monofont`).
+*   **Slide Separation:** Horizontal rule (`---`) on its own line.
+*   **Basic Text:** Italic, Bold, Strikethrough, Super/Subscript, Inline Code, Hard Line Breaks.
+*   **Lists:** Bullet (`-`, `*`, `+`) and Ordered (`1.`, `a.`, `#.`)
+*   **Code Blocks:** Simple fenced blocks (e.g., ```python ... ```).
+*   **Tables:** Simple/Pipe and Grid tables.
+*   **Images:** `![alt](mdc:path){attrs}` with relative paths.
+*   **Links:** Inline, Reference, Auto-links.
+*   **Math Equations:** Inline (`$..$`) and Display (`$$..$$`).
+*   **Citations:** Inline `[@key]` (requires `bibliography` in metadata).
+
+## Excluded Features (Avoid for Reliability):
+
+*   Speaker Notes (`::: notes`)
+*   Incremental Lists/Pauses (`::: incremental`, `. . .`)
+*   Layout Divs/Columns (`::: {.columns}`)
+*   Task Lists (`- [ ]`)
+*   Definition Lists (`Term:
+: Def`)
+*   Footnotes (`[^1]`)
+*   Jupyter Snippets (``` ipython ```)
+
+A detailed guide formatted as an XML block (`<PandocMarkdownForPptxGuide>`) was previously generated in the chat history, which can be used as a comprehensive reference for an LLM writing the Markdown content.
+
+Below is the pared‑down feature reference for `lab/test.md` → PPTX (using `main.py` with `--slide-level=0` and `--resource-path=.`), **omitting** Task Lists, Definition Lists, Footnotes/Inline Notes, Layout Divs & Columns, and Jupyter Snippets.
+
+---
+
+# Pandoc Markdown → PPTX Feature Reference
+
+1. Core Conversion Setup  
+2. Deck‑Level Metadata  
+3. Slide Separation  
+4. Basic Text Formatting  
+5. Lists  
+   5.1 Bullet Lists  
+   5.2 Ordered Lists  
+6. Code Blocks  
+7. Tables  
+8. Images & Figures  
+9. Links  
+10. Math Equations  
+11. Citations & Bibliography  
+12. Removing Problematic Blocks  
+13. Putting It All Together  
+
+---
+
+## 1. Core Conversion Setup
+
+```bash
+pandoc lab/test.md -o lab/test.pptx \
+  -t pptx \
+  --standalone \
+  --slide-level=0 \
+  --resource-path=.
+```
+
+- `--standalone`: produce a full PPTX.  
+- `--slide-level=0`: **only** `---` lines break slides.  
+- `--resource-path=.`: find images in `lab/`.  
+
+Or via `main.py`:
+
+```python
+extra_args = ['--standalone', '--slide-level=0', '--resource-path=.']
+pypandoc.convert_file(..., extra_args=extra_args)
+```
+
+---
+
+## 2. Deck‑Level Metadata
+
+Place at the top of `test.md`:
+
+```yaml
+---
+title:    "Your Presentation Title"
+author:   "Presenter Name"
+date:     "2025-05-01"
+monofont: "Consolas"         # default code font
+# reference-doc: "template.pptx"  # optional
+---
+```
+
+Populates the **Title Slide** and file properties.
+
+---
+
+## 3. Slide Separation
+
+With `--slide-level=0`:
+
+```markdown
+# This is large text—but still on Slide 1
+
+---
+
+# Slide 2 content starts here
+```
+
+- A line with exactly `---`, surrounded by blank lines, always begins a new slide.  
+- Headings (e.g. `#`) render as text within the current slide.
+
+---
+
+## 4. Basic Text Formatting
+
+- *Italic* (`*text*` or `_text_`)  
+- **Bold** (`**text**` or `__text__`)  
+- ~~Strikethrough~~ (`~~text~~`)  
+- Superscript: `x^2^`  
+- Subscript: `H~2~O`  
+- Inline code: `` `code` ``  
+- Hard line break: end a line with two spaces or `\`  
+
+---
+
+## 5. Lists
+
+### 5.1 Bullet Lists
+
+```markdown
+- Apple
+- Banana
+
+*Loose list* with blank line:
+
+- Item 1
+
+- Item 2
+```
+
+### 5.2 Ordered Lists
+
+```markdown
+1. First
+2. Second
+#. Auto‑numbered Third
+a) Lettered sub‑list
+```
+
+*(Task lists and definition lists are omitted in this customized guide.)*
+
+---
+
+## 6. Code Blocks
+
+Fenced code without extra attributes:
+
+<pre>
+```python
+def greet(name):
+    print(f"Hello, {name}!")
+```
+</pre>
+
+- Pandoc applies syntax highlighting if your reference template supports it.  
+- The `monofont` YAML variable sets the code font.
+
+---
+
+## 7. Tables
+
+### 7.1 Simple / Pipe Tables
+
+```markdown
+| Name  | Score |
+|:-----:|------:|
+| Alice |   100 |
+| Bob   |    50 |
+```
+
+### 7.2 Grid Tables
+
+```markdown
++------+------+
+| H1   | H2   |
++======+======+
+| Cell | Cell |
++------+------+
+```
+
+---
+
+## 8. Images & Figures
+
+```markdown
+![Diagram](diagram.png){width=60%}
+```
+
+- Found via `--resource-path=.`  
+- An image alone in its paragraph becomes a **figure** using its alt text as caption.
+
+---
+
+## 9. Links
+
+- Inline: `[Pandoc](https://pandoc.org)`  
+- Reference:
+
+  ```markdown
+  [ref]: https://example.com "Title"
+  See [ref].
+  ```
+
+- Autolink: `<https://example.com>`
+
+---
+
+## 10. Math Equations
+
+```markdown
+Inline: $e^{i\pi} + 1 = 0$
+
+Display:
+
+$$
+\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}
+$$
+```
+
+Rendered as Office Math (OMML) in PPTX.
+
+---
+
+## 11. Citations & Bibliography
+
+Add in YAML:
+
+```yaml
+---
+bibliography: refs.bib
+csl: apa.csl
+nocite: |
+  [@doe2020; @smith2019]
+---
+```
+
+Use inline `[ @key ]` citations. To include a bibliography slide, append manually:
+
+```markdown
+# References
+
+::: {custom-style="Bibliography"}
+:::
+```
+
+---
+
+## 12. Removing Problematic Blocks
+
+We have **omitted** features that caused issues under our parameters:
+
+- **Speaker‑note blocks** (`::: notes … :::`)  
+- **Incremental builds** (`::: incremental … :::`)  
+- **Layout divs/columns** (`::: {.columns} … :::`)  
+- **Jupyter snippets** (``` ipython ```)
+
+---
+
+## 13. Putting It All Together
+
+Example of a clean slide deck:
+
+```markdown
+---
+title: "Demo Deck"
+author: "Demo Bot"
+date: "2025-05-01"
+monofont: "Consolas"
+---
+
+# Welcome
+
+This is slide 1.
+
+- Bullet A
+- Bullet B
+
+```python
+print("Hello, PPTX!")
+```
+
+---
+
+# Data Table
+
+| Metric | Value |
+|-------:|------:|
+| Sales  |  1.2M |
+| Profit |  200K |
+```
+
+Run `main.py` (or the equivalent Pandoc command) to generate `test.pptx` with precisely these supported resources.
+
+
+<PandocMarkdownForPptxGuide>
+  <Overview>
+    This guide details the Pandoc Markdown syntax elements that reliably translate into PowerPoint (PPTX) slides when using a conversion process configured with '--slide-level=0' (meaning only horizontal rules create new slides) and '--resource-path=.' (for locating images). Use only these features to ensure predictable and clean PPTX output.
+  </Overview>
+
+  <Feature name="Metadata">
+    <MarkdownSyntax>
+      ```yaml
+      ---
+      title: "Presentation Title"
+      author: "Presenter Name"
+      date: "2024-07-26"
+      monofont: "Consolas" # Optional: Default font for code
+      # reference-doc: "template.pptx" # Optional: For custom styling
+      ---
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Populates the Title Slide (using the layout from the default or specified reference document) and embeds metadata into the PPTX file properties.
+    </PptxResult>
+    <UsageNotes>
+      Essential for the first slide and setting document properties. Place this block at the very beginning of the Markdown file.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Slide Separation">
+    <MarkdownSyntax>
+      ```markdown
+      Content for Slide 1...
+
+      ---
+
+      Content for Slide 2...
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      A line containing exactly '---' surrounded by blank lines creates a hard slide break, starting a new slide.
+    </PptxResult>
+    <UsageNotes>
+      This is the ONLY way to create new slides with the current configuration ('--slide-level=0'). Headings (#, ##, etc.) will render as text within the current slide, not start new ones.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Basic Text Formatting">
+    <MarkdownSyntax>
+      ```markdown
+      *Italic* or _Italic_
+      **Bold** or __Bold__
+      ~~Strikethrough~~
+      Superscript: E=mc^2^
+      Subscript: H~2~O
+      Inline Code: `variable_name`
+      Hard Line Break: End line with two spaces or \
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Applies standard text formatting (italics, bold, strikethrough, super/subscript, monospaced code style). Hard line breaks create line breaks within a paragraph.
+    </PptxResult>
+    <UsageNotes>
+      Use for standard text emphasis and simple formatting within paragraphs.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Bullet Lists">
+    <MarkdownSyntax>
+      ```markdown
+      - Item 1
+      - Item 2
+        - Sub-item 2a
+      
+      * Item A (Use -, *, or +)
+
+      * Loose Item B (Separated by blank line)
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Creates standard bulleted lists. Indentation creates nested levels. Blank lines between items ('loose list') add extra vertical spacing in PPTX.
+    </PptxResult>
+    <UsageNotes>
+      Ideal for enumerating points without a specific order. Use loose lists for better readability if items are long.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Ordered Lists">
+    <MarkdownSyntax>
+      ```markdown
+      1. First item
+      2. Second item
+         a. Sub-item a
+      #. Auto-numbered next item
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Creates numbered or lettered lists. Pandoc handles the numbering sequence.
+    </PptxResult>
+    <UsageNotes>
+      Use when the order or sequence of items is important. Use '#.' to continue numbering automatically.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Code Blocks">
+    <MarkdownSyntax>
+      ```python
+      def main():
+          print("Hello")
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Renders as a preformatted block of text, typically with a monospaced font (controlled by 'monofont' metadata or reference doc). Syntax highlighting may be applied if the reference doc is configured for it. Avoid complex attributes on the fence (like line numbers or custom styles) for reliability.
+    </PptxResult>
+    <UsageNotes>
+      Best for displaying multi-line code snippets clearly. Ensure the language identifier (e.g., 'python') is correct.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Tables">
+    <MarkdownSyntax>
+      Simple/Pipe Table:
+      ```markdown
+      | Header 1 | Header 2 |
+      |:--------:|---------:|
+      | Center   | Right    |
+      | Cell A   | Cell B   |
+      ```
+      Grid Table:
+      ```markdown
+      +---------+----------+
+      | Key     | Value    |
+      +=========+==========+
+      | Alpha   | 1        |
+      +---------+----------+
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Creates structured tables within the slide content area. Alignment is controlled by colons in the separator line (for pipe tables).
+    </PptxResult>
+    <UsageNotes>
+      Use for presenting tabular data concisely. Pipe tables are easier for simple data; grid tables offer more structure.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Images">
+    <MarkdownSyntax>
+      ```markdown
+      ![Alt text describing the image](image.png){width=50%}
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Embeds the specified image file (found via '--resource-path') into the slide. Attributes like 'width' or 'height' control sizing (use percentages for responsiveness). If an image is the only content in a paragraph, its alt text becomes a figure caption below it.
+    </PptxResult>
+    <UsageNotes>
+      Essential for visual elements. Ensure image files are accessible. Use descriptive alt text.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Links">
+    <MarkdownSyntax>
+      ```markdown
+      Inline: [Pandoc Website](https://pandoc.org)
+      Reference: [Example][ref]
+      Auto-link: <https://example.com>
+
+      [ref]: https://example.com "Optional Tooltip"
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Creates clickable hyperlinks within the text.
+    </PptxResult>
+    <UsageNotes>
+      Use to link to external resources or websites.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Math Equations">
+    <MarkdownSyntax>
+      ```markdown
+      Inline math: $E = mc^2$
+      Display math:
+      $$
+      \sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+      $$
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Renders mathematical formulas using PowerPoint's native Office Math (OMML) format.
+    </PptxResult>
+    <UsageNotes>
+      Use TeX syntax for formulas. Display math creates a centered block equation.
+    </UsageNotes>
+  </Feature>
+
+  <Feature name="Citations (Inline Only)">
+    <MarkdownSyntax>
+      Requires YAML metadata:
+      ```yaml
+      ---
+      bibliography: references.bib
+      csl: citation-style.csl # Optional: Specify citation style
+      ---
+      ```
+      In text:
+      ```markdown
+      ...as shown by Smith [@smith2020].
+      ```
+    </MarkdownSyntax>
+    <PptxResult>
+      Renders the citation inline according to the specified (or default) style (e.g., "[1]" or "(Smith, 2020)"). Does NOT automatically generate a bibliography slide.
+    </PptxResult>
+    <UsageNotes>
+      Use for academic or source attribution. You must manually create a final "References" slide if needed.
+    </UsageNotes>
+  </Feature>
+
+  <ExcludedFeatures>
+    Note: The following features were EXCLUDED as they proved unreliable or incompatible with the strict '--slide-level=0' conversion: Speaker Notes (`::: notes`), Incremental Lists (`::: incremental`), Layout Divs/Columns (`::: {.columns}`), Task Lists (`- [ ]`), Definition Lists (`Term:\n: Def`), Footnotes (`[^1]`), Jupyter Snippets (``` ipython ```). AVOID using these.
+  </ExcludedFeatures>
+
+</PandocMarkdownForPptxGuide>
