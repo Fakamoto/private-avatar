@@ -1,0 +1,283 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Frontend Architecture Deep Dive
+
+This document is a comprehensive map + commentary of every relevant piece of the **Next.js 14 "app-router"** frontend.  
+Use it to:
+
+• locate any file instantly  
+• understand data-flow, state, hooks, translations, styling, API proxying, polling, downloads, etc.  
+• quickly pinpoint where to patch slide/course/lesson/section endpoints or tweak intervals.
+
+## 0. HIGH-LEVEL TOPOLOGY
+
+```
+frontend/
+├─ app/                        ← All Routes (pages, layouts, API handlers)
+│   ├─ (page routes)           ← UI rendered to users
+│   └─ api/                    ← *Server* route-handlers that proxy to backend
+├─ components/                 ← Design-System (shadcn + small wrappers)
+│   └─ ui/                     ← Button, Card, Dialog, etc. (pure presentational)
+├─ hooks/                      ← Reusable client hooks (API, polling, download)
+├─ context/                    ← React context providers (i18n, theme in future)
+├─ lib/                        ← Pure utilities (tailwind merge)
+├─ public/                     ← Static assets (flags/, icons, …)
+├─ tailwind.config.ts          ← Utility-first styling
+├─ next.config.ts              ← Build config (strict TS off, rewrites unused)
+└─ types/                      ← zod/pydantic-style DTOs (currently thin)
+```
+
+## 1. ROUTING & RENDERING LAYERS
+
+### 1.1 APP ROUTER (CLIENT-SIDE/UI) – `/app/**`
+
+Each folder == URL segment; `page.tsx` is the default leaf, `layout.tsx` shared shell.
+
+Important sub-trees:
+
+• `/app/page.tsx`               – Landing "Courses list"  
+• `/app/about`, `/blog`, …      – Informational
+
+• `/app/courses/[id]/`          – **Dynamic course scope**
+  ├─ page.tsx                    – simple wrapper -> `/components/course-config`
+  ├─ config/page.tsx             – same but Suspense loader
+  ├─ lessons/…                   – nested lesson interfaces
+  └─ complete/page.tsx           – read-only PDF/Slides viewer
+
+• `/app/lessons/[id]/…`          – Lesson-only view routes
+• `/app/sections/[id]/…`         – Section-only (mainly slide editing)
+
+Heavy interactive screens live in `/app/components/**` to keep route files tiny.
+
+### 1.2 API ROUTE-HANDLERS – `/app/api/**`
+
+Next.js "Edge/server" functions that **proxy** to *backend FastAPI*; they keep browser isolated from backend base-URL and allow cookies, auth, etc.
+
+Pattern examples:
+
+```
+/app/api/courses/route.ts
+  GET  -> GET {API_BASE_URL}/courses
+  POST -> POST {API_BASE_URL}/courses    (create)
+/app/api/courses/[id]/route.ts
+  GET  -> GET {API_BASE_URL}/courses/:id
+  PUT  -> PUT {API_BASE_URL}/courses/:id
+  DELETE -> same
+```
+
+Specialised endpoints under `[id]/…` match backend structure exactly (slides, plan, documents, tasks, etc.).
+
+• Slides generation/download (course-level):
+  - POST `/app/api/courses/[id]/slides/route.ts`   ← trigger generator
+  - GET  same                                      ← returns PPTX binary
+  - GET `/app/api/courses/[id]/all-slides-pptx`    ← *client-side only* PPTX aggregator (makes per-lesson calls & builds PPT in JS).
+
+• Lesson slides, section slides, lesson plan/write follow same directory schema.
+
+✱ To ADD/MODIFY an endpoint
+  1. Create/adjust file in the parallel `app/api/**` location (copy skeleton, change URL).
+  2. If payload/headers differ update fetch() call.
+  3. UI: update hook/component that calls `/api/...` (see section 3).
+
+## 2. SHARED STATE & HOOKS
+
+### 2.1 `hooks/use-api-with-retry.tsx`
+
+Centralised axios/fetch with:
+
+• deduplicated *debounce* (per-method+URL key)  
+• automatic retries (`maxRetries`, `retryDelay`)  
+• env-based base-URL removal (so you can call `/api/xyz` or raw `/courses`).
+
+Expose: `get`, `post`, `put`, `delete` + debounced variants.  
+Modify here to change global retry/backoff logic.
+
+### 2.2 `hooks/use-is-working.tsx`
+
+Generic **polling manager** for long-running backend tasks.
+
+• Accepts `courseId` + callbacks.  
+• Internally: `startTask(url, msg)` → POST, sets `isWorking`, then starts polling `/api/courses/:id/is-working` every 2 s until backend flips flag.
+
+• Timeout failsafe 5 min.  
+• React state returned: `{ isWorking, isLoading, taskMessage, startTask, startPolling, stopPolling }`.
+
+Change polling interval or endpoint → here.
+
+### 2.3 `hooks/use-download-progress.tsx`
+
+Handles large binary downloads with streaming progress:
+
+• Accepts relative or absolute URL, enforces `/api` proxy for same-origin.  
+• Reads `Content-Length` and uses `ReadableStream` to update `progress` %.  
+• Saves file via FileSaver.  
+• Used by components to download PPTX/PDF.
+
+### 2.4 `hooks/task-wrapper.ts`
+
+Light wrapper to run arbitrary async tasks with loading/error UI (used seldom).
+
+### 2.5 `hooks/use-toast.ts`
+
+Thin abstraction above shadcn/sonner toast (custom variant types).  
+
+## 3. MAJOR UI COMPONENTS (under `/app/components`)
+
+(They are all *client components* – heavy logic, call hooks above)
+
+• `course-list.tsx`          – Dashboard of courses, delete/create.
+
+• `course-config.tsx`        – Single course form (language, duration, prompt, docs).  
+  – Calls many endpoints:  
+    `/courses/:id/documents`, `/lessons/plan`, `/slides`, etc.  
+  – Emits **Generate Course Plan** & **Fast Forward**.
+
+• `lessons-list.tsx`         – ***Large*** orchestrator (~1 k LOC).  
+  – Keeps local copy of every lesson, uses `useApiWithRetry`.  
+  – Polling: internal `setInterval` every 30 s (disabled while `isWorking`).  
+  – Task triggers: `generateAllLessonPlans`, `generateAllLessonSlides`, `downloadAllLessonSlides`, etc.  
+  – Also state for slide availability (`/courses/:id/has-slides`).
+
+• `section-list.tsx`         – CRUD UI for sections & slide (per-section).  
+  – When user clicks *Download Slide* runs GET `/sections/:id/slides/pptx`.  
+  – If slide missing calls `createSlide` first (`POST /sections/:id/slides`).
+
+• `slide-editor.tsx`         – Form modal editing a single slide.
+
+• `download-progress.tsx`    – Renders progress bar using `use-download-progress`.
+
+• `enhanced-error-boundary.tsx` – React error boundary that re-throws unknown but logs stack.
+
+• Global wrappers:
+  – `navigation.tsx` top Navbar (language toggle, etc.)  
+  – `footer.tsx` static site-footer.
+
+## 4. DATA FLOW: FROM BUTTON CLICK → BACKEND
+
+Example: "Generate All Slides"
+
+1. User presses button in `lessons-list.tsx`.  
+2. Handler calls `startTask("/courses/${id}/slides", "...")` (hook **use-is-working**).  
+3. That hook POSTs to **UI-proxy** route  `/app/api/courses/[id]/slides` (client thinks `/api/...`).  
+4. Proxy forwards to real backend `POST /courses/:id/slides`.  
+5. Hook sets `isWorking=true`; starts polling `/courses/:id/is-working`.  
+6. When backend toggles, hook fires `onComplete` -> `checkAndUpdateSlideStatus()` -> sets `doesCourseHaveSlides=true`.  
+7. "Download All Slides" button now enabled; on click `use-download-progress` streams binary via GET `/courses/:id/slides/pptx` (same route file but GET).
+
+The **same pattern** holds for lesson plan generation, writing, etc.
+
+## 5. POLLING LOCATIONS & HOW TO CHANGE THEM
+
+• Global long-running tasks → `use-is-working.tsx` (2 s interval, 5 min safety).  
+  Edit constants at top of hook.
+
+• Lessons refresh polling → `lessons-list.tsx`, around L 340:  
+  `pollInterval = setInterval(..., 30000)`.  
+  Increase/decrease as required.
+
+• Section-level refresh after slide create → `section-list.tsx`, after POST it waits `5 s` then refreshes `fetchSections()`.
+
+## 6. TRANSLATIONS & CONTEXT
+
+`app/context/language-context.tsx` (~881 LOC)
+
+• Stores `language`, `t(key, params)` L10N util.  
+• Default translations large JSON inside same file, languages: **en/it/es**.  
+• To add strings: append inside `defaultTranslations`.  
+• To auto-load external files, refactor this file only – rest of app calls `useLanguage`.
+
+Other planned providers (theme) can mirror this pattern inside `/context`.
+
+## 7. PRESENTATIONAL COMPONENTS DESIGN-SYSTEM
+
+`components/ui/*` – generated via shadcn library, fully stateless.  
+Supply props for styling only.
+
+• Changing theme → Tailwind & shadcn config (tailwind.config.ts).  
+• DO NOT embed business logic here.
+
+## 8. STYLING, BUILD, LINT
+
+• Tailwind config adds extended palette and container widths, open sans.  
+• ESLint config at project root (not shown) – style enforcement.
+
+A lot of `globals.css` sets prose classes for markdown preview.
+
+## 9. ENVIRONMENT VARIABLES
+
+`.env`
+  NEXT_PUBLIC_API_BASE_URL   ← exposed to client  
+Backend proxies default to `API_BASE_URL || NEXT_PUBLIC_API_BASE_URL || localhost`.
+
+If you change backend port, you ONLY need to adjust env; proxy files inherit automatically.
+
+## 10. WHERE TO EDIT SPECIFIC CONCERNS
+
+### 10.1 Slide-related Endpoint logic
+
+• Generation (course)   : `app/api/courses/[id]/slides/route.ts` (POST)  
+• Download (course)     : same file, GET branch  
+• Aggregated PPTX       : `app/api/courses/[id]/all-slides-pptx/route.ts` (client-side composition)  
+• Generation (lesson)   : `app/api/lessons/[id]/slides/route.ts`  
+• Generation (section)  : `app/api/sections/[id]/slides/route.ts`  
+• Download (section)    : `.../slides/pptx/route.ts`
+
+UI triggers:
+  – Buttons inside `lessons-list.tsx`, `section-list.tsx`.  
+  – Hooks above handle polling & downloads.
+
+### 10.2 Course CRUD / Plan / PDF
+
+• `app/api/courses/route.ts`       – list/create  
+• `app/api/courses/[id]/route.ts`  – details/update/delete  
+• `app/api/courses/[id]/plan`      – generate plan  
+• `app/api/courses/[id]/pdf`       – PDF bytes  
+Triggering comps: `course-list.tsx`, `course-config.tsx`.
+
+### 10.3 Polling frequency / task timer
+
+Edit:
+
+• `hooks/use-is-working.tsx` – `setInterval(checkTaskStatus, 2000)` + safety.  
+• `hooks/use-is-working.tsx` – `setTimeout` 5 * 60 000 ms.  
+• `app/components/lessons-list.tsx` – `setInterval(..., 30000)`.
+
+### 10.4 Debounce / Retry / Timeout (fetch)
+
+`hooks/use-api-with-retry.tsx`  
+• `maxRetries`, `retryDelay`, `debounceTime` defaults at top.
+
+### 10.5 Download buffer timeouts
+
+`hooks/use-download-progress.tsx` – abort controller 3 min; adjust if PPTX huge.
+
+## 11. TROUBLESHOOTING QUICK INDEX
+
+Symptom                         → Check
+────────────────────────────────────────────────────────
+Slides never finish generating  → backend logs; ensure `/is-working` toggles; verify `use-is-working` still polling (look at Network tab).
+Download link 404               → correct route file? courseId/lessonId matches? See section-list logic.
+Multiple rapid requests         → debounce in `use-api-with-retry` or duplicate polls.
+Spanish missing translation     → add key in `language-context.tsx`.
+Tailwind class not applying     → `globals.css` purge list / tailwind.config content array.
+
+## 12. BUILD / DEPLOY NOTES
+
+Dockerfile.dev / .prod build multi-stage, front is served by nginx (see root `nginx.conf`).  
+`next.config.ts` is almost stock; rewrites were removed – all internal traffic goes through Next API routes; keep that pattern.
+
+## 13. ADDING A NEW FEATURE – TEMPLATE CHECKLIST
+
+1. Backend endpoint ready at `/foo`.  
+2. Create proxy: `app/api/foo/route.ts` (copy existing).  
+3. Add hook or useApiWithRetry call in new/existing component.  
+4. If long-running, call `startTask("/foo" ...)` and maybe a new `/is-working` variant.  
+5. UI: button/state.  
+6. Update translations.  
+7. Write tests (if infra).  
+8. Deploy: no extra nginx because Next proxies as `/api/foo`.
+
+That covers every nook and cranny of the **frontend**: routing, hooks, polling, downloads, translation, styling, and where to hack when requirements change. Keep this guide handy as the canonical roadmap.
