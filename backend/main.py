@@ -58,6 +58,7 @@ from backend.endpoints.sections import router as sections_router
 from backend.endpoints.slides import router as slides_router
 from backend.endpoints.documents import router as documents_router
 from backend.endpoints.test import router as test_router
+from backend.endpoints.quizzes import router as quizzes_router
 
 app.include_router(courses_router)
 app.include_router(lessons_router)
@@ -65,3 +66,4 @@ app.include_router(sections_router)
 app.include_router(slides_router)
 app.include_router(documents_router)
 app.include_router(test_router)
+app.include_router(quizzes_router)

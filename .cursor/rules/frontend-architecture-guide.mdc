@@ -1,6 +1,6 @@
 ---
-description:
-globs:
+description: Every task involving frontend
+globs: 
 alwaysApply: false
 ---
 # Frontend Architecture Deep Dive

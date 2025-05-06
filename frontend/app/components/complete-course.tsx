@@ -8,6 +8,9 @@ import { useLanguage } from "@/app/context/language-context"
 import { useRouter } from "next/navigation"
 import { MarkdownContent } from "@/app/components/markdown-content"
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import QuizComponent, { Quiz, QuizAttemptState } from "@/app/components/quiz-component"
+import { shuffleArray } from "@/lib/utils"
+import { useApiWithRetry } from "@/hooks/use-api-with-retry";
 
 // Interfaces
 interface Section {
@@ -16,6 +19,7 @@ interface Section {
     content: string
     short_description: string
     duration_minutes: number
+    quiz?: Quiz | null
 }
 
 interface Lesson {
@@ -100,6 +104,10 @@ export function CompleteCourse({ courseId }: CompleteCourseEnhancedProps) {
     const [course, setCourse] = useState<Course | null>(null)
     const [isLoading, setIsLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const { post } = useApiWithRetry();
+
+    /** Stores UI state for every quiz keyed by the quiz id */
+    const [quizStates, setQuizStates] = useState<Record<number, QuizAttemptState>>({})
 
     const fetchCourse = useCallback(async () => {
         try {
@@ -117,6 +125,30 @@ export function CompleteCourse({ courseId }: CompleteCourseEnhancedProps) {
                 ...courseData,
                 lessons: lessonsData,
             })
+
+            // ------ Build initial quiz states (shuffle once) ------ //
+            const initialStates: Record<number, QuizAttemptState> = {}
+            for (const lesson of lessonsData) {
+                for (const section of lesson.sections) {
+                    if (section.quiz && section.quiz.id != null) {
+                        const quizObj: Quiz = section.quiz
+                        const isAlreadyAnswered = quizObj.user_answer != null;
+                        initialStates[quizObj.id!] = {
+                            answered: isAlreadyAnswered,
+                            selectedAnswer: isAlreadyAnswered && quizObj.user_answer ? quizObj.user_answer : null,
+                            isCorrect: isAlreadyAnswered && quizObj.user_answer ? quizObj.user_answer === quizObj.correct_answer : null,
+                            shuffledAnswers: shuffleArray([
+                                quizObj.correct_answer,
+                                quizObj.incorrect_answer_1,
+                                quizObj.incorrect_answer_2,
+                                quizObj.incorrect_answer_3,
+                            ]),
+                            originalCorrectAnswer: quizObj.correct_answer,
+                        }
+                    }
+                }
+            }
+            setQuizStates(initialStates)
             setError(null)
         } catch (err) {
             console.error("Error fetching course:", err)
@@ -179,22 +211,54 @@ export function CompleteCourse({ courseId }: CompleteCourseEnhancedProps) {
                     <div key={lesson.id} className="space-y-4">
                         <h2 className="text-xl font-bold border-b pb-2">{lesson.title}</h2>
                         {lesson.sections.map((section) => (
-                            <div key={section.id} className="rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
-                                <div className="space-y-4">
-                                    <h3 className="text-lg font-semibold">{section.title}</h3>
-                                    {section.short_description && <p className="text-muted-foreground">{section.short_description}</p>}
-                                    {section.duration_minutes > 0 && (
-                                        <p className="text-sm text-muted-foreground">
-                                            {t("completeCourse.sectionDuration", {
-                                                hours: Math.floor(section.duration_minutes / 60),
-                                                minutes: section.duration_minutes % 60,
-                                            })}
-                                        </p>
-                                    )}
-                                    <div className="mt-4">
-                                        <MarkdownContent content={section.content.replace(/\)\)$/, "")} />
+                            <div key={section.id} className="space-y-4">
+                                {/* Section content */}
+                                <div className="rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
+                                    <div className="space-y-4">
+                                        <h3 className="text-lg font-semibold">{section.title}</h3>
+                                        {section.short_description && <p className="text-muted-foreground">{section.short_description}</p>}
+                                        {section.duration_minutes > 0 && (
+                                            <p className="text-sm text-muted-foreground">
+                                                {t("completeCourse.sectionDuration", {
+                                                    hours: Math.floor(section.duration_minutes / 60),
+                                                    minutes: section.duration_minutes % 60,
+                                                })}
+                                            </p>
+                                        )}
+                                        <div className="mt-4">
+                                            <MarkdownContent content={section.content.replace(/\)\)$/, "")} />
+                                        </div>
                                     </div>
                                 </div>
+
+                                {/* Quiz (if available) */}
+                                {section.quiz && section.quiz.id != null && quizStates[section.quiz.id] && (
+                                    <QuizComponent
+                                        quiz={section.quiz}
+                                        state={quizStates[section.quiz.id]}
+                                        onAnswer={async (selected, isCorrect) => {
+                                            // Submit answer to backend
+                                            try {
+                                                await post(`/api/quizzes/${section.quiz!.id}/answer`, { answer: selected });
+                                                // Optionally: handle successful submission, e.g., if backend returns updated quiz
+                                            } catch (apiError) {
+                                                console.error("Failed to submit quiz answer:", apiError);
+                                                // Optionally: show a toast to the user
+                                            }
+
+                                            // Update local state
+                                            setQuizStates((prev) => ({
+                                                ...prev,
+                                                [section.quiz!.id!]: {
+                                                    ...prev[section.quiz!.id!],
+                                                    answered: true,
+                                                    selectedAnswer: selected,
+                                                    isCorrect,
+                                                },
+                                            }))
+                                        }}
+                                    />
+                                )}
                             </div>
                         ))}
                     </div>

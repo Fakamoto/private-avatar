@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from backend import utils
 from backend.ai import SectionInformation, StructuredLessonPlan
-from sqlmodel import Field, Relationship, Session, SQLModel, create_engine
+from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////data/database.db")
 engine = create_engine(DATABASE_URL, echo=False)
@@ -147,7 +147,14 @@ class Section(SQLModel, table=True):
         back_populates="section",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
-    slide_markdown: Optional[str] = None
+    quiz: Optional["Quiz"] = Relationship(
+        back_populates="section",
+        sa_relationship_kwargs={
+            "uselist": False,
+            "cascade": "all, delete-orphan"
+        }
+    )
+    # Removed quiz_id as the foreign key (section_id) is in the Quiz table for one-to-one
 
 
 class Slide(SQLModel, table=True):
@@ -155,6 +162,22 @@ class Slide(SQLModel, table=True):
     markdown_content: str = Field(description="Pandoc-compatible markdown for this slide")
     section_id: Optional[int] = Field(default=None, foreign_key="section.id")
     section: Optional["Section"] = Relationship(back_populates="slides")
+
+class QuizModel(SQLModel):
+    """Used for llm completion"""
+    title: str
+    question: str
+    correct_answer: str
+    incorrect_answer_1: str
+    incorrect_answer_2: str
+    incorrect_answer_3: str
+
+
+class Quiz(QuizModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_answer: Optional[str] = Field(default=None)
+    section_id: Optional[int] = Field(default=None, foreign_key="section.id", unique=True)
+    section: Optional["Section"] = Relationship(back_populates="quiz")
 
 #######################
 # RESPONSE MODELS
@@ -169,6 +192,7 @@ class SectionRead(SQLModel):
     style: Optional[str] = None
     duration_minutes: Optional[int] = None
     slides: List[Slide] = []
+    quiz: Optional[Quiz] = None
 
 class LessonRead(SQLModel):
     id: int

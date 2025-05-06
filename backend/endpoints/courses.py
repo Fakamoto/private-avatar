@@ -25,6 +25,7 @@ from backend.database import (
     Slide,
     engine,
     get_session,
+    Quiz,
 )
 
 from backend.ai import (
@@ -35,6 +36,7 @@ from backend.ai import (
     get_lesson_plan_with_retry,
     write_presentation_markdown,
     improve_slides,
+    create_quiz,
 )
 
 from backend.utils import (
@@ -778,6 +780,7 @@ def run_write_lessons_task(course_id: int):
         """Asynchronous core logic for writing lesson content."""
         logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Entering async core logic.")
         course_with_lessons = None
+        processed_content_count = 0
         with Session(engine) as session:
             try:
                 logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Fetching course and lesson data.")
@@ -873,22 +876,68 @@ def run_write_lessons_task(course_id: int):
                             logger.warning(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Mismatch section count for lesson {lesson.id}. DB: {len(sections_list)}, AI: {len(improved_generation.title_for_section)}. Skipping update.")
                             continue
                         else:
-                            for section, title, content in zip(
-                                sections_list,
-                                improved_generation.title_for_section,
-                                improved_generation.content_for_section
-                            ):
+                            logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Saving content for {len(sections_list)} sections in lesson {lesson_id}.")
+                            
+                            current_lesson_section_ids_having_content = []
+
+                            for section, title, content in zip(sections_list, improved_generation.title_for_section, improved_generation.content_for_section):
                                 section.title = title
                                 section.content = content
-                                session.add(section)
-                            lessons_with_content += 1
+                                if section.content and isinstance(section.content, str) and section.content.strip():
+                                    current_lesson_section_ids_having_content.append(section.id)
+
+                            # 2. Prepare and Gather Quiz Tasks for this Lesson
+                            quiz_tasks = []
+                            section_quiz_map = {}
+                            logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Preparing quiz tasks for {len(sections_list)} sections in lesson {lesson_id}.")
+                            for section in sections_list:
+                                if section.content:
+                                    task = create_quiz(section.content, language)
+                                    quiz_tasks.append(task)
+                                    section_quiz_map[task] = section
+                                else:
+                                     logger.warning(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Skipping quiz for section {section.id} due to missing content.")
+
+                            logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Gathering {len(quiz_tasks)} quiz results for lesson {lesson_id}.")
+                            quiz_results = await asyncio.gather(*quiz_tasks, return_exceptions=True)
+                            logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Finished gathering quiz results for lesson {lesson_id}.")
+
+                            # 3. Process Quiz Results and Update DB
+                            for task, quiz_model_or_error in zip(quiz_tasks, quiz_results):
+                                section = section_quiz_map.get(task)
+                                if not section:
+                                    logger.error(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Could not map quiz task result back to section in lesson {lesson_id}. Skipping.")
+                                    continue
+
+                                if isinstance(quiz_model_or_error, Exception):
+                                    logger.error(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Quiz generation failed for section {section.id}: {quiz_model_or_error}")
+                                elif quiz_model_or_error:
+                                    quiz_model = quiz_model_or_error
+                                    if section.quiz:
+                                        session.delete(section.quiz)
+                                    new_quiz = Quiz(
+                                        title=quiz_model.title,
+                                        question=quiz_model.question,
+                                        correct_answer=quiz_model.correct_answer,
+                                        incorrect_answer_1=quiz_model.incorrect_answer_1,
+                                        incorrect_answer_2=quiz_model.incorrect_answer_2,
+                                        incorrect_answer_3=quiz_model.incorrect_answer_3,
+                                        section=section,
+                                    )
+                                    session.add(new_quiz)
+                                    section.quiz = new_quiz
+                                    logger.debug(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Successfully generated quiz for section {section.id}.")
+                                else:
+                                    logger.warning(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Quiz generation returned None for section {section.id}.")
+
+                            # Commit content and quiz updates together for the lesson
+                            session.commit()
+                            processed_content_count += 1 # Increment count after successful lesson processing (content + quizzes)
+                            logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Committed content and quizzes for lesson {lesson_id}.")
                     else:
                         logger.warning(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] No result or error returned for lesson {lesson_id}")
 
-
-                    session.commit()
-
-                logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Write task completed. {lessons_with_content} lessons updated.")
+                logger.info(f"[BACKGROUND][_actual_write_lessons_task][{course_id}] Write task completed. {processed_content_count} lessons updated.")
                 # ----- End Synchronous DB Updates ----- #
 
             except Exception as e:
@@ -1132,14 +1181,64 @@ def run_full_course_generation_task(course_id: int, request_data: dict):
                                 failed_content_count += 1
                             else:
                                 logger.info(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Saving content for {len(sections_list)} sections in lesson {lesson_id}.")
+                                
+                                current_lesson_section_ids_having_content = []
+
                                 for section, title, content in zip(sections_list, improved_generation.title_for_section, improved_generation.content_for_section):
                                     section.title = title
                                     section.content = content
-                                    session.add(section)
-                                    if section.id not in sections_with_content:
-                                        sections_with_content.append(section.id)
-                                session.commit()
-                                processed_content_count += 1
+                                    if section.content and isinstance(section.content, str) and section.content.strip():
+                                        current_lesson_section_ids_having_content.append(section.id)
+
+                                    # 2. Prepare and Gather Quiz Tasks for this Lesson
+                                    quiz_tasks = []
+                                    section_quiz_map = {}
+                                    logger.info(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Preparing quiz tasks for {len(sections_list)} sections in lesson {lesson_id}.")
+                                    for section in sections_list:
+                                        if section.content:
+                                            task = create_quiz(section.content, language)
+                                            quiz_tasks.append(task)
+                                            section_quiz_map[task] = section
+                                        else:
+                                             logger.warning(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Skipping quiz for section {section.id} due to missing content.")
+
+                                    logger.info(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Gathering {len(quiz_tasks)} quiz results for lesson {lesson_id}.")
+                                    quiz_results = await asyncio.gather(*quiz_tasks, return_exceptions=True)
+                                    logger.info(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Finished gathering quiz results for lesson {lesson_id}.")
+
+                                    # 3. Process Quiz Results and Update DB
+                                    for task, quiz_model_or_error in zip(quiz_tasks, quiz_results):
+                                        section = section_quiz_map.get(task)
+                                        if not section:
+                                            logger.error(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Could not map quiz task result back to section in lesson {lesson_id}. Skipping.")
+                                            continue
+
+                                        if isinstance(quiz_model_or_error, Exception):
+                                            logger.error(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Quiz generation failed for section {section.id}: {quiz_model_or_error}")
+                                        elif quiz_model_or_error:
+                                            quiz_model = quiz_model_or_error
+                                            if section.quiz:
+                                                session.delete(section.quiz)
+                                            new_quiz = Quiz(
+                                                title=quiz_model.title,
+                                                question=quiz_model.question,
+                                                correct_answer=quiz_model.correct_answer,
+                                                incorrect_answer_1=quiz_model.incorrect_answer_1,
+                                                incorrect_answer_2=quiz_model.incorrect_answer_2,
+                                                incorrect_answer_3=quiz_model.incorrect_answer_3,
+                                                section=section,
+                                            )
+                                            session.add(new_quiz)
+                                            section.quiz = new_quiz
+                                            logger.debug(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Successfully generated quiz for section {section.id}.")
+                                        else:
+                                            logger.warning(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Quiz generation returned None for section {section.id}.")
+
+                                    # Commit content and quiz updates together for the lesson
+                                    session.commit()
+                                    sections_with_content.extend(current_lesson_section_ids_having_content)
+                                    processed_content_count += 1 # Increment count after successful lesson processing (content + quizzes)
+                                    logger.info(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] Committed content and quizzes for lesson {lesson_id}.")
                         else:
                             logger.warning(f"[BACKGROUND][_actual_full_course_generation_task][{course_id}] No content result for lesson {lesson_id}")
                             failed_content_count += 1

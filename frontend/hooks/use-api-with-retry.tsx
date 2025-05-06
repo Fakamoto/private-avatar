@@ -81,18 +81,23 @@ export function useApiWithRetry({
         console.log(`API_BASE_URL: ${API_BASE_URL}`)
         console.log(`Making request to: ${fullUrl}`)
 
+        // Url for axios call should be the original url if it's a Next.js API route,
+        // or the cleanUrl if it's a direct backend call that might be prefixed by axios base URL
+        const axiosTargetUrl = url.startsWith("/api/") ? url : cleanUrl;
+        console.log(`Axios target URL: ${axiosTargetUrl}`);
+
         switch (method) {
           case "get":
-            response = await axios.get<T>(cleanUrl, config)
+            response = await axios.get<T>(axiosTargetUrl, config)
             break
           case "post":
-            response = await axios.post<T>(cleanUrl, config?.data, config)
+            response = await axios.post<T>(axiosTargetUrl, config?.data, config)
             break
           case "put":
-            response = await axios.put<T>(cleanUrl, config?.data, config)
+            response = await axios.put<T>(axiosTargetUrl, config?.data, config)
             break
           case "delete":
-            response = await axios.delete<T>(cleanUrl, config)
+            response = await axios.delete<T>(axiosTargetUrl, config)
             break
           default:
             throw new Error(`Unsupported method: ${method}`)

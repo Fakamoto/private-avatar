@@ -2436,3 +2436,114 @@ beyond a single heading.
 
     logger.error(f"[{func_name}] Unable to fix markdown after {max_retries} attempts. Returning last version anyway.")
     return current_md
+
+#######################
+# QUIZ GENERATION
+#######################
+
+async def create_quiz(content: str, language: str):
+    """Generate a single-question quiz from *content*.
+
+    The generated quiz must be answerable *only* with the given content. It
+    returns a `Quiz` instance with one correct and three plausible but
+    incorrect answers. Returns **None** if generation fails.
+    """
+    from backend.database import Quiz
+    func_name = "create_quiz"
+    logger.info(f"[{func_name}] Generating quiz. Content length: {len(content)} chars.")
+
+    # --- Static Prompt Component Blocks ---
+    ROLE_OBJECTIVE = """
+<RoleAndObjective>
+You are an expert educational content creator. Your task is to design a
+single multiple-choice quiz question strictly based on the provided
+<SectionContent>. The question **MUST** be answerable *only* using the
+information contained in that section – no outside knowledge.
+</RoleAndObjective>
+"""
+
+    INSTRUCTIONS_CORE = """
+<Instructions>
+    <General>
+        1. **Read the Section:** Carefully analyse the `<SectionContent>`.
+        2. **Draft Question:** Craft **one** clear question that tests
+           comprehension of the key ideas in the section.
+        3. **Generate Answers:** Provide exactly *four* answer options:
+            a. One `correct_answer` that is unequivocally correct **and**
+               directly derivable from the section. Ensure that the correct answer is not consistently the longest option; its length should be balanced with the incorrect answers.
+            b. Three `incorrect_answer_*` options that are *plausible* given
+               the context but ultimately wrong.
+        4. **Plausibility Requirement:** Incorrect answers must sound
+           believable yet must not be supported by the content.
+        5. **Language Requirement:** Write the question, title and answers in
+           the target language.
+        6. **Adhere to Model:** Output must strictly follow the `Quiz`
+           Pydantic model (see <OutputFormat>).
+    </General>
+</Instructions>
+"""
+
+    CONSTRAINTS = """
+<Constraints>
+    <Constraint name="NoExternalKnowledge">Do NOT introduce information that is not found in `<SectionContent>`.</Constraint>
+    <Constraint name="ExactlyFourAnswers">Provide exactly one `correct_answer` and three `incorrect_answer_*` values.</Constraint>
+    <Constraint name="AnswerUniqueness">Ensure none of the incorrect answers duplicate the correct answer or each other.</Constraint>
+    <Constraint name="Language">All text (title, question, answers) must be in the target language specified.</Constraint>
+</Constraints>
+"""
+
+    OUTPUT_FORMAT = """
+<OutputFormat>
+Output must strictly follow the `Quiz` Pydantic model structure
+(`title`, `question`, `correct_answer`, `incorrect_answer_1`,
+`incorrect_answer_2`, `incorrect_answer_3`).
+</OutputFormat>
+"""
+
+    THINKING_PROCESS = """
+<ThinkingProcess>
+Think step-by-step:
+1. Identify the most important concept(s) within the section.
+2. Formulate a challenging yet fair question that targets those concept(s).
+3. Draft one correct answer drawing explicitly from the section.
+4. Devise three plausible distractors that could confuse learners but are
+   not supported by the section.
+5. Verify that the question can be answered using only the section content.
+6. Assemble the final `Quiz` compliant output.
+</ThinkingProcess>
+"""
+
+    # --- Compose System Prompt ---
+    system_prompt_parts = [
+        "<SystemPrompt>",
+        ROLE_OBJECTIVE,
+        INSTRUCTIONS_CORE,
+        CONSTRAINTS,
+        OUTPUT_FORMAT,
+        THINKING_PROCESS,
+        "</SystemPrompt>",
+    ]
+    SYSTEM_PROMPT = "\n".join(system_prompt_parts)
+
+    # Instantiate LLM once
+    llm = ALLM(system_prompt=SYSTEM_PROMPT, model=FAST_MODEL, client=shared_openai_client)
+
+    # --- Dynamic Prompt Composition ---
+    section_content_input = f"<SectionContent>\n{content}\n</SectionContent>"
+    language_instruction_input = f"<TargetLanguage>{language.upper()}</TargetLanguage>"
+    final_instruction_input = "<FinalInstruction>Generate the quiz now.</FinalInstruction>"
+
+    generation_prompt = "\n".join([
+        section_content_input,
+        language_instruction_input,
+        final_instruction_input,
+    ])
+
+    try:
+        logger.debug(f"[{func_name}] Sending prompt to LLM (length: {len(generation_prompt)} chars).")
+        quiz: Quiz = await llm.chat(generation_prompt, response_format=Quiz)
+        logger.info(f"[{func_name}] Quiz generated successfully.")
+        return quiz
+    except Exception as e:
+        logger.error(f"[{func_name}] Quiz generation failed: {e}")
+        return None

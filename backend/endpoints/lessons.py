@@ -13,6 +13,7 @@ from backend.database import (
     Lesson,
     LessonRead,
     Section,
+    Quiz,
     engine,
     get_session,
 )
@@ -21,6 +22,9 @@ from backend.ai import (
     improve_lesson,
     write_lesson,
     get_lesson_plan_with_retry,
+    write_presentation_markdown,
+    improve_slides,
+    create_quiz,
 )
 
 from backend.utils import (
@@ -347,8 +351,55 @@ def run_write_lesson_task(lesson_id: int):
                     ):
                         section.title = title
                         section.content = content
-                        session.add(section)
-                    logger.info(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Content saved successfully for {len(sections_list)} sections.")
+
+                        session.add(section) # Add section with updated content
+
+                    # 2. Prepare and Gather Quiz Generation Tasks Concurrently
+                    quiz_tasks = []
+                    section_quiz_map = {}
+                    logger.info(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Preparing quiz tasks for {len(sections_list)} sections.")
+                    for section in sections_list:
+                        if section.content: # Only generate quiz if there is content
+                            task = create_quiz(section.content, language)
+                            quiz_tasks.append(task)
+                            section_quiz_map[task] = section
+                        else:
+                            logger.warning(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Skipping quiz for section {section.id} due to missing content.")
+
+                    logger.info(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Gathering quiz results for {len(quiz_tasks)} tasks.")
+                    quiz_results = await asyncio.gather(*quiz_tasks, return_exceptions=True)
+                    logger.info(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Finished gathering quiz results.")
+
+                    # 3. Process Quiz Results and Update DB
+                    for task, quiz_model_or_error in zip(quiz_tasks, quiz_results):
+                        section = section_quiz_map.get(task)
+                        if not section:
+                            logger.error(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Could not map quiz task result back to section. Skipping.")
+                            continue
+
+                        if isinstance(quiz_model_or_error, Exception):
+                             logger.error(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Quiz generation failed for section {section.id}: {quiz_model_or_error}")
+                        elif quiz_model_or_error:
+                            quiz_model = quiz_model_or_error
+                            if section.quiz:
+                                session.delete(section.quiz)
+                            new_quiz = Quiz(
+                                title=quiz_model.title,
+                                question=quiz_model.question,
+                                correct_answer=quiz_model.correct_answer,
+                                incorrect_answer_1=quiz_model.incorrect_answer_1,
+                                incorrect_answer_2=quiz_model.incorrect_answer_2,
+                                incorrect_answer_3=quiz_model.incorrect_answer_3,
+                                section=section,
+                            )
+                            session.add(new_quiz)
+                            section.quiz = new_quiz
+                            logger.debug(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Successfully generated quiz for section {section.id}.")
+                        else:
+                             logger.warning(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Quiz generation returned None for section {section.id}.")
+
+                session.commit() # Commit all section content and quiz updates for the lesson
+                logger.info(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Saved content and quizzes for {len(sections_list)} sections.")
 
                 logger.info(f"[BACKGROUND][_actual_write_lesson_task][{lesson_id}] Write lesson content task completed: {len(sections_list)} sections updated for lesson {lesson_id}.")
                 # ----- End Synchronous DB Updates ----- #

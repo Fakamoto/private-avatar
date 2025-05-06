@@ -6,9 +6,8 @@ services:
     # ports: # Remove direct port exposure
     volumes:
       - ./data:/data
-      - ${APP_ENV:-prod}_backend_volume:/backend # Only mounts in dev mode
+      - ./backend:/backend # MODIFIED: Hardcoded direct bind mount for backend code
     environment:
-      - OPENAI_API_KEY=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
       - APP_ENV=${APP_ENV:-prod}
     env_file:
       - path: ./.env
@@ -25,8 +24,8 @@ services:
         - NEXT_PUBLIC_API_BASE_URL=/api
     # ports: # Remove direct port exposure
     volumes:
-      - ${APP_ENV:-prod}_frontend_volume:/app # Only mounts in dev mode
-      - ${APP_ENV:-prod}_node_modules:/app/node_modules # Only used in dev mode
+      - ./frontend:/app # MODIFIED: Hardcoded direct bind mount for frontend code
+      - ${APP_ENV:-prod}_node_modules:/app/node_modules # Kept for dev node_modules strategy
     environment:
       # API calls will now use relative path /api handled by Nginx
       - NEXT_PUBLIC_API_BASE_URL=/api
